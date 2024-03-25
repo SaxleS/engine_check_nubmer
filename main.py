@@ -1,43 +1,40 @@
 from flask import Flask, request, jsonify
 import phonenumbers
-from phonenumbers import geocoder, carrier
+from phonenumbers import geocoder, carrier, PhoneNumberType
 import re
-from multiprocessing import Pool
+from concurrent.futures import ThreadPoolExecutor
+NumVerify = Flask("NumVerify")
 
-NumVerify = Flask(__name__)
 
 def check_number(data):
     phone_number, country_guess = data
-    phone_number = re.sub("[^\d]", "", phone_number)
-
+    phone_number_copy= phone_number
+    phone_number = re.sub( "[^\d]", "", phone_number)
     try:
         if not phone_number.startswith("00") and not phone_number.startswith("+") and country_guess:
             phone_number_full = phonenumbers.parse(phone_number, country_guess)
-            if phonenumbers.is_valid_number(phone_number_full):
-                # Форматируем номер в международном формате E164
-                phone_number_formatted = phonenumbers.format_number(phone_number_full, phonenumbers.PhoneNumberFormat.E164)
-            else:
-                return {"phone": f"{phone_number}", "valid": False}
         else:
-            # Если номер уже содержит код страны, используем его как есть
             phone_number_full = phonenumbers.parse(phone_number, None)
-            phone_number_formatted = phonenumbers.format_number(phone_number_full, phonenumbers.PhoneNumberFormat.E164)
 
-        valid = phonenumbers.is_valid_number(phone_number_full)
-        country = geocoder.description_for_number(phone_number_full, 'en')
-        operator = carrier.name_for_number(phone_number_full, 'en')
+        if phonenumbers.is_valid_number(phone_number_full):
+            phone_number_formatted = phonenumbers.format_number(phone_number_full, phonenumbers.PhoneNumberFormat.INTERNATIONAL)
+            country = geocoder.description_for_number(phone_number_full, 'en')
+            operator = carrier.name_for_number(phone_number_full, 'en')
+            number_type = phonenumbers.number_type(phone_number_full)
 
-        # Возвращаем отформатированный номер в ответе
-        return {"valid": valid, "country": country, "operator": operator, "phone": phone_number_formatted}
+            type_code = "M" if number_type == PhoneNumberType.MOBILE else "L"
+
+            return {"valid": True, "country": country, "operator": operator, "phone": phone_number_formatted, "type_code": type_code}
+        else:
+            return {"phone": phone_number, "valid": False}
     except Exception as e:
-        return {"phone": f"{phone_number}", "valid": False, "error": str(e)}
+        return {"phone": phone_number_copy,"type_code": "X", "valid": False,}
 
 def process_numbers(numbers_with_countries):
-    with Pool(processes=10) as pool:
-        results = pool.map(check_number, numbers_with_countries)
-        pool.close()
-        pool.join()
-        return results
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        results = list(executor.map(check_number, numbers_with_countries))
+    return results
+
 
 @NumVerify.route('/check_numbers_NumVerify', methods=['POST'])
 def check_numbers():
