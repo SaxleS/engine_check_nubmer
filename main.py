@@ -35,7 +35,6 @@ def process_numbers(numbers_with_countries):
         results = list(executor.map(check_number, numbers_with_countries))
     return results
 
-
 @NumVerify.route('/check_numbers_NumVerify', methods=['POST'])
 def check_numbers():
     if request.is_json:
